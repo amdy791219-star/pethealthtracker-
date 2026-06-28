@@ -142,7 +142,7 @@
   }
   .daily-form-card h3 { margin:0 0 12px 0; font-size:16px; }
   .daily-list-box {
-    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;max-height:360px;overflow-y:auto;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;max-height:420px;overflow-y:auto;
   }
   .daily-log-item {
     display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:13px;
@@ -413,6 +413,30 @@ function el(tag, cls, html){
   return e;
 }
 
+// 計算精確年齡：幾歲幾個月幾天
+function getDetailedAge(birthdateStr) {
+  if (!birthdateStr) return "";
+  const birth = new Date(birthdateStr);
+  const now = new Date();
+  if (isNaN(birth.getTime()) || birth > now) return "";
+
+  let years = now.getFullYear() - birth.getFullYear();
+  let months = now.getMonth() - birth.getMonth();
+  let days = now.getDate() - birth.getDate();
+
+  if (days < 0) {
+    const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    days += prevMonthLastDay;
+    months--;
+  }
+  if (months < 0) {
+    months += 12;
+    years--;
+  }
+
+  return `（${years}歲${months}個月${days}天）`;
+}
+
 /* ============================================================
    AUTH
    ============================================================ */
@@ -593,10 +617,16 @@ async function createDailyLog(petId, data) {
   await addDoc(collection(db, 'dailyLogs'), {
     petId,
     ownerId: currentUser.uid,
+    photoURLs: data.photoURLs || [],
     ...data,
     createdAt: serverTimestamp()
   });
   toast("已儲存紀錄");
+}
+
+async function updateDailyLog(logId, data) {
+  await updateDoc(doc(db, 'dailyLogs', logId), data);
+  toast("已更新紀錄");
 }
 
 async function deleteDailyLog(logId) {
@@ -703,7 +733,10 @@ function renderOverview(pet){
   const top = el('div','topbar');
   const left = el('div');
   left.appendChild(el('h1','', pet.name || "未命名"));
-  const metaParts = [pet.species, pet.breed, pet.sex, pet.weight?`${pet.weight} kg`:null, pet.birthdate?("生日 "+pet.birthdate):null].filter(Boolean);
+  
+  // 生日資訊附加顯示年齡
+  const ageStr = pet.birthdate ? `${pet.birthdate}${getDetailedAge(pet.birthdate)}` : null;
+  const metaParts = [pet.species, pet.breed, pet.sex, pet.weight?`${pet.weight} kg`:null, pet.birthdate?("生日 "+ageStr):null].filter(Boolean);
   left.appendChild(el('div','meta', metaParts.join(' · ')));
   top.appendChild(left);
 
@@ -734,6 +767,8 @@ function renderOverview(pet){
   ];
 
   let currentTab = 'water'; 
+  let editingLogId = null; // 當前正在編輯的日常紀錄 ID
+  let currentLogPhotoURLs = []; // 當前編輯/新增中的日常紀錄相片陣列
 
   const tabSelect = document.createElement('select');
   tabSelect.style.minWidth = '160px';
@@ -753,64 +788,91 @@ function renderOverview(pet){
   function updateDailySection() {
     dailyGrid.innerHTML = '';
     const activeTabObj = tabs.find(t => t.id === currentTab);
-    
     const dLogs = dailyLogsByPet[pet.id] || [];
 
     const formCard = el('div', 'daily-form-card');
     let inputFieldHtml = '';
-    let photoFieldHtml = '';
+    
+    // 特殊狀況與所有其他項目都加入多張相片管理區
     if (activeTabObj.id === 'notes') {
       inputFieldHtml = `<div class="field"><label>${activeTabObj.label}</label><textarea class="d-value-input" placeholder="${activeTabObj.placeholder}"></textarea></div>`;
-      photoFieldHtml = `
-        <div class="field">
-          <label>照片(選填)</label>
-          <div class="upload-box d-photo-box">📷 點此選擇照片</div>
-          <input type="file" accept="image/*" class="d-photo-input" style="display:none;">
-          <div class="d-photo-preview" style="margin-top:8px;"></div>
-        </div>`;
     } else {
       inputFieldHtml = `<div class="field"><label>${activeTabObj.label} (${activeTabObj.unit})</label><input type="number" step="0.01" class="d-value-input" placeholder="${activeTabObj.placeholder}"></div>`;
     }
 
+    const photoFieldHtml = `
+      <div class="field" style="margin-top:12px;">
+        <label>照片紀錄 (可上傳多張)</label>
+        <div class="photo-strip d-photo-strip"></div>
+        <div class="upload-box d-photo-box" style="margin-top:8px;">📷 點此附加照片</div>
+        <input type="file" accept="image/*" class="d-photo-input" style="display:none;">
+      </div>`;
+
     formCard.innerHTML = `
-      <h3>新增 ${activeTabObj.label}</h3>
+      <h3 class="form-title">新增 ${activeTabObj.label}</h3>
       <div class="field"><label>日期</label><input type="date" class="d-date-input" value="${new Date().toISOString().slice(0,10)}"></div>
       ${inputFieldHtml}
       ${photoFieldHtml}
-      <button type="button" class="btn btn-primary btn-save-daily" style="padding:8px; margin-top:5px; width:100%;">儲存單項紀錄</button>
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button type="button" class="btn btn-line btn-cancel-edit hidden" style="padding:8px; flex:1;">取消編輯</button>
+        <button type="button" class="btn btn-primary btn-save-daily" style="padding:8px; flex:2;">儲存紀錄</button>
+      </div>
     `;
 
-    let pendingPhotoDataUrl = "";
-    if(activeTabObj.id === 'notes'){
-      const photoBox = formCard.querySelector('.d-photo-box');
-      const photoInput = formCard.querySelector('.d-photo-input');
-      const photoPreview = formCard.querySelector('.d-photo-preview');
-      photoBox.addEventListener('click', ()=> photoInput.click());
-      photoInput.addEventListener('change', async (e)=>{
-        const f = e.target.files[0];
-        if(!f) return;
-        photoBox.textContent = "處理中...";
-        try{
-          const dataUrl = await compressImageToBase64(f);
-          if(dataUrl.length > 700000){
-            toast("這張照片壓縮後仍太大,請換一張較小的照片");
-            photoBox.textContent = "📷 點此選擇照片";
-            return;
-          }
-          pendingPhotoDataUrl = dataUrl;
-          photoPreview.innerHTML = "";
-          const previewImg = el('img','photo-thumb');
-          previewImg.src = dataUrl;
-          photoPreview.appendChild(previewImg);
-          photoBox.textContent = "📷 已選擇照片(點此更換)";
-        }catch(err){
-          toast("照片處理失敗,請換一張試試");
-          photoBox.textContent = "📷 點此選擇照片";
-        }
+    const photoStrip = formCard.querySelector('.d-photo-strip');
+    const photoBox = formCard.querySelector('.d-photo-box');
+    const photoInput = formCard.querySelector('.d-photo-input');
+    const cancelEditBtn = formCard.querySelector('.btn-cancel-edit');
+    const saveBtn = formCard.querySelector('.btn-save-daily');
+    const formTitle = formCard.querySelector('.form-title');
+
+    // 渲染表單內的相片預覽（支援單張刪除）
+    function renderFormPhotos() {
+      photoStrip.innerHTML = "";
+      currentLogPhotoURLs.forEach((url, index) => {
+        const wrap = el('div', 'photo-thumb-wrap');
+        const img = el('img', 'photo-thumb');
+        img.src = url;
+        img.addEventListener('click', () => openLightbox(url));
+        const delBtn = el('button', 'photo-del-btn', '✕');
+        delBtn.type = 'button';
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          currentLogPhotoURLs.splice(index, 1);
+          renderFormPhotos();
+        });
+        wrap.appendChild(img);
+        wrap.appendChild(delBtn);
+        photoStrip.appendChild(wrap);
       });
     }
 
-    const saveBtn = formCard.querySelector('.btn-save-daily');
+    photoBox.addEventListener('click', () => photoInput.click());
+    photoInput.addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      photoBox.textContent = "處理中...";
+      try {
+        const dataUrl = await compressImageToBase64(f);
+        if (dataUrl.length > 700000) {
+          toast("這張照片壓縮後仍太大，請換一張較小的照片");
+        } else {
+          currentLogPhotoURLs.push(dataUrl);
+          renderFormPhotos();
+        }
+      } catch (err) {
+        toast("照片處理失敗，請重試");
+      }
+      photoBox.textContent = "📷 點此附加照片";
+      photoInput.value = "";
+    });
+
+    cancelEditBtn.addEventListener('click', () => {
+      editingLogId = null;
+      currentLogPhotoURLs = [];
+      updateDailySection();
+    });
+
     saveBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       const dateVal = formCard.querySelector('.d-date-input').value;
@@ -826,19 +888,25 @@ function renderOverview(pet){
         weight: currentTab === 'weight' ? valText : "", 
         breath: currentTab === 'breath' ? valText : "", 
         notes: currentTab === 'notes' ? valText : "",
-        photoURL: currentTab === 'notes' ? pendingPhotoDataUrl : ""
+        photoURLs: currentLogPhotoURLs
       };
 
       try {
-        await createDailyLog(pet.id, logData);
-        formCard.querySelector('.d-value-input').value = "";
-        pendingPhotoDataUrl = "";
+        if (editingLogId) {
+          await updateDailyLog(editingLogId, logData);
+          editingLogId = null;
+        } else {
+          await createDailyLog(pet.id, logData);
+        }
+        currentLogPhotoURLs = [];
+        updateDailySection();
       } catch (err) {
         console.error("儲存失敗:", err);
-        toast("儲存失敗,請檢查權限設定");
+        toast("儲存失敗，請檢查設定");
       }
     });
 
+    // 右側列表排版
     const listBox = el('div', 'daily-list-box');
     const filteredLogs = dLogs.filter(log => log[currentTab] !== undefined && log[currentTab] !== null && log[currentTab] !== "");
 
@@ -850,32 +918,67 @@ function renderOverview(pet){
         row.style.flexDirection = 'column';
         let displayVal = '';
         if (currentTab === 'notes') {
-          displayVal = `${activeTabObj.icon} 狀況: ${log.notes}`;
+          displayVal = `${activeTabObj.icon} 狀況: ${escapeHtml(log.notes)}`;
         } else {
           const fieldLabels = { water: '飲水', food: '飼料', weight: '體重', breath: '呼吸' };
           displayVal = `${activeTabObj.icon} ${fieldLabels[currentTab]}: ${log[currentTab]} ${activeTabObj.unit}`;
         }
 
-        row.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;width:100%;">
-            <div>
-              <span class="d-date">${log.date}</span>
-              <div class="d-vals">${displayVal}</div>
-            </div>
-            <button type="button" class="icon-btn delLogBtn" style="font-size:12px; margin-left:6px; color:var(--ink-soft);">✕</button>
+        const topContainer = el('div');
+        topContainer.style.display = 'flex';
+        topContainer.style.justifyContent = 'space-between';
+        topContainer.style.alignItems = 'flex-start';
+        topContainer.style.width = '100%';
+
+        topContainer.innerHTML = `
+          <div>
+            <span class="d-date">${log.date}</span>
+            <div class="d-vals">${displayVal}</div>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button type="button" class="btn-ghost editLogBtn" style="font-size:12px; padding:2px 6px; color:var(--teal); font-weight:600;">📝 編輯</button>
+            <button type="button" class="icon-btn delLogBtn" style="font-size:12px; color:var(--ink-soft);">✕</button>
           </div>
         `;
-        row.querySelector('.delLogBtn').addEventListener('click', () => {
-          if (confirm("確定要刪除這條紀錄嗎?")) deleteDailyLog(log.id);
+
+        // 編輯單筆點擊事件
+        topContainer.querySelector('.editLogBtn').addEventListener('click', () => {
+          editingLogId = log.id;
+          formTitle.textContent = `修改 ${activeTabObj.label}`;
+          formCard.querySelector('.d-date-input').value = log.date;
+          formCard.querySelector('.d-value-input').value = log[currentTab] || "";
+          currentLogPhotoURLs = log.photoURLs ? [...log.photoURLs] : (log.photoURL ? [log.photoURL] : []);
+          cancelEditBtn.classList.remove('hidden');
+          renderFormPhotos();
+          formCard.scrollIntoView({ behavior: 'smooth' });
         });
-        if(currentTab === 'notes' && log.photoURL){
-          const photoWrap = el('div','photo-thumb-wrap');
-          photoWrap.style.marginTop = '8px';
-          const thumb = el('img','photo-thumb');
-          thumb.src = log.photoURL;
-          thumb.addEventListener('click', ()=> openLightbox(log.photoURL));
-          photoWrap.appendChild(thumb);
-          row.appendChild(photoWrap);
+
+        topContainer.querySelector('.delLogBtn').addEventListener('click', () => {
+          if (confirm("確定要刪除這條紀錄嗎?")) {
+            if (editingLogId === log.id) {
+              editingLogId = null;
+              currentLogPhotoURLs = [];
+            }
+            deleteDailyLog(log.id);
+          }
+        });
+
+        row.appendChild(topContainer);
+
+        // 列表內多圖預覽
+        const urlsToShow = log.photoURLs || (log.photoURL ? [log.photoURL] : []);
+        if(urlsToShow.length > 0){
+          const stripPreview = el('div','photo-strip');
+          stripPreview.style.marginTop = '8px';
+          urlsToShow.forEach(url => {
+            const photoWrap = el('div','photo-thumb-wrap');
+            const thumb = el('img','photo-thumb');
+            thumb.src = url;
+            thumb.addEventListener('click', ()=> openLightbox(url));
+            photoWrap.appendChild(thumb);
+            stripPreview.appendChild(photoWrap);
+          });
+          row.appendChild(stripPreview);
         }
         listBox.appendChild(row);
       });
@@ -883,11 +986,14 @@ function renderOverview(pet){
 
     dailyGrid.appendChild(formCard);
     dailyGrid.appendChild(listBox);
+    renderFormPhotos();
   }
 
   updateDailySection();
   tabSelect.addEventListener('change', (e) => {
     currentTab = e.target.value;
+    editingLogId = null;
+    currentLogPhotoURLs = [];
     updateDailySection();
   });
 
@@ -1215,6 +1321,7 @@ function openLightbox(url){
 function openPetModal(pet){
   const overlay = el('div','overlay');
   const modal = el('div','modal');
+  // 已將 體重 (kg) 的欄位整塊拿掉
   modal.innerHTML = `
     <h2>${pet ? '編輯寵物' : '新增寵物'}</h2>
     <div class="row2">
@@ -1227,7 +1334,6 @@ function openPetModal(pet){
     </div>
     <div class="row2">
       <div class="field"><label>生日</label><input id="mPetBirthdate" type="date" value="${pet?.birthdate||''}"></div>
-      <div class="field"><label>體重 (kg)</label><input id="mPetWeight" type="number" step="0.1" value="${pet?.weight||''}"></div>
     </div>
     <div class="modal-actions">
       ${pet? '<button class="btn btn-danger-ghost" id="mDeletePet">刪除寵物</button>' : ''}
@@ -1253,7 +1359,6 @@ function openPetModal(pet){
       breed: modal.querySelector('#mPetBreed').value.trim(),
       sex: modal.querySelector('#mPetSex').value.trim(),
       birthdate: modal.querySelector('#mPetBirthdate').value,
-      weight: modal.querySelector('#mPetWeight').value,
     };
     if(!data.name){ toast("請輸入名字"); return; }
     if(pet) await updatePet(pet.id, data);
