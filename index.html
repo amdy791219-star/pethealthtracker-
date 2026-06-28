@@ -561,7 +561,7 @@ async function deleteVisit(petId, visitId){
 }
 
 /* ============================================================
-   FIRESTORE: 新增日常健康紀錄 
+   FIRESTORE: 日常健康紀錄 
    ============================================================ */
 function subscribeDailyLogs(petId) {
   const q = query(
@@ -586,12 +586,12 @@ async function createDailyLog(petId, data) {
     ...data,
     createdAt: serverTimestamp()
   });
-  toast("已儲存今日日常紀錄");
+  toast("已儲存紀錄");
 }
 
 async function deleteDailyLog(logId) {
   await deleteDoc(doc(db, 'dailyLogs', logId));
-  toast("已刪除該筆日常紀錄");
+  toast("已刪除紀錄");
 }
 
 /* ============================================================
@@ -663,7 +663,7 @@ function emptyState(title, sub, btnLabel, onClick){
   return e;
 }
 
-/* ---------- Overview: 包含獨立切換的日常紀錄與回診時間軸 ---------- */
+/* ---------- Overview ---------- */
 function renderOverview(pet){
   const main = document.getElementById('main');
   const top = el('div','topbar');
@@ -685,10 +685,9 @@ function renderOverview(pet){
   top.appendChild(actions);
   main.appendChild(top);
 
-  // 🌟 日常生理與健康狀態登記欄位
+  // 🌟 日常生理健康紀錄
   main.appendChild(el('div', 'section-title', '📝 每日健康生活紀錄'));
 
-  // 1. 建立功能切換選單 (Dropdown Tabs)
   const tabsControls = el('div', 'trend-controls');
   tabsControls.style.marginBottom = '14px';
   
@@ -700,7 +699,7 @@ function renderOverview(pet){
     { id: 'notes', label: '⚠️ 特殊狀況', unit: '', icon: '⚠️', placeholder: '今天無異常狀況...' }
   ];
 
-  let currentTab = 'water'; // 預設停在飲水量
+  let currentTab = 'water'; 
 
   const tabSelect = document.createElement('select');
   tabSelect.style.minWidth = '160px';
@@ -714,55 +713,47 @@ function renderOverview(pet){
   tabsControls.appendChild(tabSelect);
   main.appendChild(tabsControls);
 
-  // 2. 建立日誌區塊容器
   const dailyGrid = el('div', 'daily-log-grid');
   main.appendChild(dailyGrid);
 
-  // 3. 動態渲染 Form 與 List 的 function
+  // 重構後的動態區塊渲染方法，確保每次切換時都全新抓取與綁定
   function updateDailySection() {
     dailyGrid.innerHTML = '';
     const activeTabObj = tabs.find(t => t.id === currentTab);
     const dLogs = dailyLogsByPet[pet.id] || [];
 
-    // A. 建立表單卡片
     const formCard = el('div', 'daily-form-card');
-    let inputHtml = '';
+    let inputFieldHtml = '';
     if (activeTabObj.id === 'notes') {
-      inputHtml = `<div class="field"><label>${activeTabObj.label}</label><textarea id="dValueInput" placeholder="${activeTabObj.placeholder}"></textarea></div>`;
+      inputFieldHtml = `<div class="field"><label>${activeTabObj.label}</label><textarea class="d-value-input" placeholder="${activeTabObj.placeholder}"></textarea></div>`;
     } else {
-      inputHtml = `<div class="field"><label>${activeTabObj.label} (${activeTabObj.unit})</label><input type="number" step="0.01" id="dValueInput" placeholder="${activeTabObj.placeholder}"></div>`;
+      inputFieldHtml = `<div class="field"><label>${activeTabObj.label} (${activeTabObj.unit})</label><input type="number" step="0.01" class="d-value-input" placeholder="${activeTabObj.placeholder}"></div>`;
     }
 
     formCard.innerHTML = `
       <h3>新增 ${activeTabObj.label}</h3>
-      <div class="field"><label>日期</label><input type="date" id="dDateInput" value="${new Date().toISOString().slice(0,10)}"></div>
-      ${inputHtml}
+      <div class="field"><label>日期</label><input type="date" class="d-date-input" value="${new Date().toISOString().slice(0,10)}"></div>
+      ${inputFieldHtml}
       <button class="btn btn-primary" id="saveDailyBtn" style="padding:8px; margin-top:5px;">儲存單項紀錄</button>
     `;
 
-    // 點擊儲存按鈕事件
+    // 關鍵修正：直接利用該 card 的節點內部範圍尋找對應的 input / textarea
     formCard.querySelector('#saveDailyBtn').addEventListener('click', async () => {
-      const dateEl = formCard.querySelector('#dDateInput');
-      const valEl = formCard.querySelector('#dValueInput');
-      
-      const date = dateEl ? dateEl.value : '';
-      const val = valEl ? valEl.value.trim() : '';
+      const dateVal = formCard.querySelector('.d-date-input').value;
+      const valText = formCard.querySelector('.d-value-input').value.trim();
 
-      if (!date) { toast("請選擇日期"); return; }
-      if (!val) { toast("請輸入內容"); return; }
+      if (!dateVal) { toast("請選擇日期"); return; }
+      if (!valText) { toast("請輸入內容"); return; }
 
-      // 封裝成標準格式，僅攜帶當前選單的欄位數值
-      const logData = { date, water: "", food: "", weight: "", breath: "", notes: "" };
-      logData[currentTab] = val;
+      const logData = { date: dateVal, water: "", food: "", weight: "", breath: "", notes: "" };
+      logData[currentTab] = valText;
 
       await createDailyLog(pet.id, logData);
-      if(valEl) valEl.value = "";
+      formCard.querySelector('.d-value-input').value = "";
     });
 
-    // B. 建立右側對應的歷史清單
+    // 建立歷史日誌清單
     const listBox = el('div', 'daily-list-box');
-    
-    // 篩選出含有當前選取項目（非空）的日誌
     const filteredLogs = dLogs.filter(log => log[currentTab] !== undefined && log[currentTab] !== null && log[currentTab] !== "");
 
     if (!filteredLogs.length) {
@@ -796,14 +787,13 @@ function renderOverview(pet){
     dailyGrid.appendChild(listBox);
   }
 
-  // 初始化首次渲染與下拉選單監聽
   updateDailySection();
   tabSelect.addEventListener('change', (e) => {
     currentTab = e.target.value;
     updateDailySection();
   });
 
-  // 🌟 專業醫療回診歷史紀錄
+  // 🌟 臨床檢驗歷史紀錄
   main.appendChild(el('div', 'section-title', '🏥 醫院回診與臨床檢驗紀錄'));
   const visits = visitsByPet[pet.id] || [];
   if(!visits.length){
