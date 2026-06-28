@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>毛孩病歷本 · 寵物醫療紀錄</title>
+<title>毛孩病歷本 · 寵物醫療與日常紀錄</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -124,21 +124,30 @@
   .topbar .meta{color:var(--ink-soft);font-size:13px;margin-top:4px;}
   .actions{display:flex;gap:8px;flex-wrap:wrap;}
 
+  .section-title{font-size:20px;font-weight:600;margin:24px 0 12px;border-bottom:1px solid var(--line);padding-bottom:6px;color:var(--teal-dark);}
+
   .empty-state{
     border:1px dashed var(--line);border-radius:14px;padding:48px 24px;text-align:center;color:var(--ink-soft);
   }
   .empty-state h3{color:var(--ink);margin:0 0 6px;}
 
-  /* pet cards (overview list) */
-  .pet-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;}
-  .pet-card{
-    background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;cursor:pointer;
-    transition:border-color .15s, transform .1s;
+  /* daily log block */
+  .daily-log-grid {
+    display:grid;grid-template-columns:1fr 1.2fr;gap:20px;margin-bottom:24px;
   }
-  .pet-card:hover{border-color:var(--teal);}
-  .pet-card .pname{font-family:'Newsreader',serif;font-size:19px;font-weight:600;margin:0 0 2px;}
-  .pet-card .pmeta{font-size:12.5px;color:var(--ink-soft);}
-  .pet-card .pvisits{margin-top:12px;font-size:12px;color:var(--teal-dark);font-weight:600;}
+  .daily-form-card {
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;
+  }
+  .daily-form-card h3 { margin:0 0 12px 0; font-size:16px; }
+  .daily-list-box {
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;max-height:360px;overflow-y:auto;
+  }
+  .daily-log-item {
+    display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:13px;
+  }
+  .daily-log-item:last-child { border-bottom:none; }
+  .daily-log-item .d-date { font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--teal); }
+  .daily-log-item .d-vals { margin-top:4px; color:var(--ink); line-height:1.4;}
 
   /* visit timeline */
   .timeline{border-left:2px solid var(--line);margin-left:8px;padding-left:22px;}
@@ -230,6 +239,7 @@
     .brand{display:none;}
     .sidebar-footer{display:none;}
     #main{padding:20px;}
+    .daily-log-grid { grid-template-columns:1fr; }
     .item-row{grid-template-columns:1fr 70px 140px;}
     .item-edit-row{grid-template-columns:1fr;}
   }
@@ -237,12 +247,11 @@
 </head>
 <body>
 
-<!-- ============ AUTH SCREEN ============ -->
 <div id="authScreen">
   <div class="auth-card">
     <div class="auth-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21s-7-4.35-9.5-8.8C.7 8.7 2.3 5 6 5c2 0 3.2 1.1 4 2.2C10.8 6.1 12 5 14 5c3.7 0 5.3 3.7 3.5 7.2C19 16.65 12 21 12 21z" fill="#fff"/></svg></div>
     <h1 id="authTitle">登入病歷本</h1>
-    <p class="sub" id="authSub">記錄每一次回診、檢驗數值與趨勢變化</p>
+    <p class="sub" id="authSub">記錄每一次回診、檢驗數值與日常健康變化</p>
     <div id="authError" class="auth-error hidden"></div>
     <div class="field" id="nameField" style="display:none;">
       <label>你的稱呼(飼主/管理人)</label>
@@ -264,7 +273,6 @@
   </div>
 </div>
 
-<!-- ============ MAIN APP ============ -->
 <div id="app" class="hidden">
   <div id="sidebar">
     <div class="brand">
@@ -285,8 +293,7 @@
 
 <script type="module">
 /* ============================================================
-   FIREBASE 設定 —— 請依照 README.md 建立你自己的 Firebase 專案
-   並把下方的 firebaseConfig 換成你自己的設定值
+   FIREBASE 設定 —— 請更新為你自己的 Firebase 專案設定值
    ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import {
@@ -320,7 +327,7 @@ try{
 }catch(e){ configOk = false; }
 
 /* ============================================================
-   常用檢驗項目範本(取自 CBC 血液檢查 / 生化檢查)
+   常用檢驗項目範本
    ============================================================ */
 const PRESETS = {
   "CBC 血液檢查": [
@@ -357,12 +364,14 @@ const PRESETS = {
 let currentUser = null;
 let pets = [];
 let visitsByPet = {};
+let dailyLogsByPet = {}; // 新增：存放日常紀錄
 let activePetId = null;
-let activeView = "overview"; // overview | visitDetail | trends
+let activeView = "overview"; 
 let activeVisitId = null;
 let unsubPets = null;
 let unsubVisits = null;
-let authMode = "login"; // login | signup
+let unsubDailyLogs = null; // 新增：日常紀錄監聽控制
+let authMode = "login"; 
 
 /* ============================================================
    工具
@@ -409,7 +418,7 @@ function setAuthMode(mode){
   authMode = mode;
   if(mode==="login"){
     authTitle.textContent = "登入病歷本";
-    authSub.textContent = "記錄每一次回診、檢驗數值與趨勢變化";
+    authSub.textContent = "記錄每一次回診、檢驗數值與日常健康變化";
     authSubmitBtn.textContent = "登入";
     authSwitchText.textContent = "還沒有帳號?";
     authSwitchBtn.textContent = "建立帳號";
@@ -475,7 +484,8 @@ function bootAuthListener(){
       document.getElementById('app').classList.add('hidden');
       if(unsubPets) unsubPets();
       if(unsubVisits) unsubVisits();
-      pets = []; visitsByPet = {}; activePetId = null;
+      if(unsubDailyLogs) unsubDailyLogs();
+      pets = []; visitsByPet = {}; dailyLogsByPet = {}; activePetId = null;
     }
   });
 }
@@ -492,7 +502,10 @@ function subscribePets(){
     if(!activePetId && pets.length) activePetId = pets[0].id;
     renderSidebar();
     renderMain();
-    pets.forEach(p=> subscribeVisits(p.id));
+    pets.forEach(p=> {
+      subscribeVisits(p.id);
+      subscribeDailyLogs(p.id); // 即時同步新功能資料
+    });
   }, (err)=> toast("讀取寵物資料失敗:"+err.message));
 }
 async function createPet(data){
@@ -515,7 +528,6 @@ async function deletePet(petId){
    FIRESTORE: 回診紀錄
    ============================================================ */
 function subscribeVisits(petId){
-  // 💡 已修正：在 query 內加上 ownerId 的過濾條件，與 Security Rules 保持同步
   const q = query(
     collection(db, 'visits'), 
     where('petId', '==', petId),
@@ -546,6 +558,40 @@ async function deleteVisit(petId, visitId){
   toast("已刪除回診紀錄");
   activeView = "overview";
   renderMain();
+}
+
+/* ============================================================
+   FIRESTORE: 新增日常健康紀錄 (飲水、飼料、體重、呼吸、狀況)
+   ============================================================ */
+function subscribeDailyLogs(petId) {
+  const q = query(
+    collection(db, 'dailyLogs'),
+    where('petId', '==', petId),
+    where('ownerId', '==', currentUser.uid)
+  );
+  onSnapshot(q, (snap) => {
+    const list = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    list.sort((a, b) => new Date(b.date) - new Date(a.date));
+    dailyLogsByPet[petId] = list;
+    renderMain();
+  }, (err) => {
+    console.error(err);
+  });
+}
+
+async function createDailyLog(petId, data) {
+  await addDoc(collection(db, 'dailyLogs'), {
+    petId,
+    ownerId: currentUser.uid,
+    ...data,
+    createdAt: serverTimestamp()
+  });
+  toast("已儲存今日日常紀錄");
+}
+
+async function deleteDailyLog(logId) {
+  await deleteDoc(doc(db, 'dailyLogs', logId));
+  toast("已刪除該筆日常紀錄");
 }
 
 /* ============================================================
@@ -617,7 +663,7 @@ function emptyState(title, sub, btnLabel, onClick){
   return e;
 }
 
-/* ---------- Overview: pet info + visit timeline ---------- */
+/* ---------- Overview: 包含新日常紀錄與回診時間軸 ---------- */
 function renderOverview(pet){
   const main = document.getElementById('main');
   const top = el('div','topbar');
@@ -628,7 +674,7 @@ function renderOverview(pet){
   top.appendChild(left);
 
   const actions = el('div','actions');
-  const trendBtn = el('button','btn btn-line','📈 趨勢圖');
+  const trendBtn = el('button','btn btn-line','📈 數值趨勢圖');
   trendBtn.addEventListener('click', ()=>{ activeView='trends'; renderMain(); });
   const editPetBtn = el('button','btn btn-line','編輯寵物');
   editPetBtn.addEventListener('click', ()=> openPetModal(pet));
@@ -639,6 +685,80 @@ function renderOverview(pet){
   top.appendChild(actions);
   main.appendChild(top);
 
+  // 🌟 [新功能區一]：日常生理與健康狀態登記欄位
+  main.appendChild(el('div', 'section-title', '📝 每日健康生活紀錄'));
+  const dailyGrid = el('div', 'daily-log-grid');
+  
+  const formCard = el('div', 'daily-form-card');
+  formCard.innerHTML = `
+    <h3>新增今日狀態</h3>
+    <div class="field"><label>日期</label><input type="date" id="dDate" value="${new Date().toISOString().slice(0,10)}"></div>
+    <div class="row2">
+      <div class="field"><label>每日飲水量 (ml)</label><input type="number" id="dWater" placeholder="例如: 250"></div>
+      <div class="field"><label>每日飼料量 (g)</label><input type="number" id="dFood" placeholder="例如: 80"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>目前體重 (kg)</label><input type="number" step="0.01" id="dWeight" placeholder="例如: 7.5"></div>
+      <div class="field"><label>每分鐘呼吸次數 (次/分)</label><input type="number" id="dBreath" placeholder="例如: 24"></div>
+    </div>
+    <div class="field"><label>特殊狀況描述 (如嘔吐、活力差、拉肚子...)</label><textarea id="dNotes" placeholder="今天無異常狀況..."></textarea></div>
+    <button class="btn btn-primary" id="saveDailyBtn" style="padding:8px; margin-top:5px;">儲存生活日誌</button>
+  `;
+  
+  formCard.querySelector('#saveDailyBtn').addEventListener('click', async () => {
+    const logData = {
+      date: formCard.querySelector('#dDate').value,
+      water: formCard.querySelector('#dWater').value.trim(),
+      food: formCard.querySelector('#dFood').value.trim(),
+      weight: formCard.querySelector('#dWeight').value.trim(),
+      breath: formCard.querySelector('#dBreath').value.trim(),
+      notes: formCard.querySelector('#dNotes').value.trim()
+    };
+    if(!logData.date) { toast("請選擇日期"); return; }
+    await createDailyLog(pet.id, logData);
+    // 清空輸入
+    formCard.querySelector('#dWater').value = "";
+    formCard.querySelector('#dFood').value = "";
+    formCard.querySelector('#dWeight').value = "";
+    formCard.querySelector('#dBreath').value = "";
+    formCard.querySelector('#dNotes').value = "";
+  });
+
+  const listBox = el('div', 'daily-list-box');
+  const dLogs = dailyLogsByPet[pet.id] || [];
+  if(!dLogs.length) {
+    listBox.innerHTML = `<div style="color:var(--ink-soft); text-align:center; padding:40px 10px; font-size:13px;">尚未建立任何日常日誌</div>`;
+  } else {
+    dLogs.forEach(log => {
+      const row = el('div', 'daily-log-item');
+      
+      const textParts = [];
+      if(log.water) textParts.push(`💧 飲水: ${log.water} ml`);
+      if(log.food) textParts.push(`🍖 飼料: ${log.food} g`);
+      if(log.weight) textParts.push(`⚖️ 體重: ${log.weight} kg`);
+      if(log.breath) textParts.push(`🫁 呼吸: ${log.breath} 次/分`);
+      if(log.notes) textParts.push(`⚠️ 狀況: ${log.notes}`);
+      
+      row.innerHTML = `
+        <div>
+          <span class="d-date">${log.date}</span>
+          <div class="d-vals">${textParts.join('<br>')}</div>
+        </div>
+        <button class="icon-btn delLogBtn" style="font-size:12px; margin-left:6px; color:var(--ink-soft);">✕</button>
+      `;
+      row.querySelector('.delLogBtn').addEventListener('click', () => {
+        if(confirm("確定要刪除這條生活日誌嗎？")) deleteDailyLog(log.id);
+      });
+      listBox.appendChild(row);
+    });
+  }
+  
+  dailyGrid.appendChild(formCard);
+  dailyGrid.appendChild(listBox);
+  main.appendChild(dailyGrid);
+
+  // 🌟 [原本功能區]：專業醫療回診歷史紀錄
+  main.appendChild(el('div', 'section-title', '🏥 醫院回診與臨床檢驗紀錄'));
   const visits = visitsByPet[pet.id] || [];
   if(!visits.length){
     main.appendChild(emptyState("還沒有回診紀錄","新增第一筆回診紀錄,記錄檢驗數值","+ 新增回診紀錄", ()=>openVisitModal(pet)));
@@ -772,27 +892,30 @@ function renderRangeBar(value, low, high, flag){
   return wrap;
 }
 
-/* ---------- Trends ---------- */
+/* ---------- Trends: 擴充支援日常數據與血檢數據的趨勢切換 ---------- */
 let chartInstance = null;
 function renderTrends(pet){
   const main = document.getElementById('main');
   main.appendChild(crumb(pet.name, ()=>{activeView='overview'; renderMain();}));
   const top = el('div','topbar');
-  top.appendChild(el('h1','','數值趨勢'));
+  top.appendChild(el('h1','','數據趨勢追踪'));
   main.appendChild(top);
 
-  const visits = (visitsByPet[pet.id]||[]).slice().sort((a,b)=> new Date(a.date)-new Date(b.date));
-  const itemNames = new Set();
-  visits.forEach(v=>(v.panels||[]).forEach(p=>(p.items||[]).forEach(it=>{ if(it.name) itemNames.add(it.name); })));
+  const vSorted = (visitsByPet[pet.id]||[]).slice().sort((a,b)=> new Date(a.date)-new Date(b.date));
+  const dSorted = (dailyLogsByPet[pet.id]||[]).slice().sort((a,b)=> new Date(a.date)-new Date(b.date));
 
-  if(!itemNames.size){
-    main.appendChild(emptyState("還沒有可繪製的數值","先新增回診紀錄並填入檢驗數值",null));
-    return;
-  }
+  const itemNames = new Set();
+  // 先加入新加入的日常定量指標
+  itemNames.add("📦 日常: 每日飲水量 (ml)");
+  itemNames.add("📦 日常: 每日飼料量 (g)");
+  itemNames.add("📦 日常: 目前體重 (kg)");
+  itemNames.add("📦 日常: 每分鐘呼吸次數");
+  
+  vSorted.forEach(v=>(v.panels||[]).forEach(p=>(p.items||[]).forEach(it=>{ if(it.name) itemNames.add("🩸 臨床: "+it.name); })));
 
   const controls = el('div','trend-controls');
   const select = document.createElement('select');
-  Array.from(itemNames).sort().forEach(name=>{
+  Array.from(itemNames).forEach(name=>{
     const opt = document.createElement('option'); opt.value=name; opt.textContent=name;
     select.appendChild(opt);
   });
@@ -808,21 +931,46 @@ function renderTrends(pet){
   function draw(itemName){
     const points = [];
     let refLow=null, refHigh=null;
-    visits.forEach(v=>{
-      (v.panels||[]).forEach(p=>(p.items||[]).forEach(it=>{
-        if(it.name===itemName && it.value!=="" && it.value!=null && !isNaN(it.value)){
-          points.push({x: v.date, y: parseFloat(it.value)});
-          if(it.refLow!=null && it.refLow!=="") refLow = parseFloat(it.refLow);
-          if(it.refHigh!=null && it.refHigh!=="") refHigh = parseFloat(it.refHigh);
+    
+    if(itemName.startsWith("📦 日常: ")) {
+      const fieldMap = {
+        "📦 日常: 每日飲水量 (ml)": "water",
+        "📦 日常: 每日飼料量 (g)": "food",
+        "📦 日常: 目前體重 (kg)": "weight",
+        "📦 日常: 每分鐘呼吸次數": "breath"
+      };
+      const key = fieldMap[itemName];
+      dSorted.forEach(log => {
+        if(log[key] !== "" && log[key] != null && !isNaN(log[key])) {
+          points.push({x: log.date, y: parseFloat(log[key])});
         }
-      }));
-    });
+      });
+    } else {
+      const pureName = itemName.replace("🩸 臨床: ", "");
+      vSorted.forEach(v=>{
+        (v.panels||[]).forEach(p=>(p.items||[]).forEach(it=>{
+          if(it.name===pureName && it.value!=="" && it.value!=null && !isNaN(it.value)){
+            points.push({x: v.date, y: parseFloat(it.value)});
+            if(it.refLow!=null && it.refLow!=="") refLow = parseFloat(it.refLow);
+            if(it.refHigh!=null && it.refHigh!=="") refHigh = parseFloat(it.refHigh);
+          }
+        }));
+      });
+    }
+
     if(chartInstance) chartInstance.destroy();
+    
+    if(!points.length) {
+      toast("目前該項目尚無足夠的數值產生圖表。");
+      return;
+    }
+
     const pointColors = points.map(p=>{
       if(refLow!=null && p.y<refLow) return '#3D6FC1';
       if(refHigh!=null && p.y>refHigh) return '#C1453D';
       return '#3F6B66';
     });
+
     const datasets = [{
       label: itemName,
       data: points,
@@ -833,6 +981,7 @@ function renderTrends(pet){
       tension:0.25,
       borderWidth:2,
     }];
+
     if(refLow!=null && refHigh!=null){
       datasets.push({
         label:'正常範圍上限', data: points.map(p=>({x:p.x,y:refHigh})),
@@ -844,6 +993,7 @@ function renderTrends(pet){
         backgroundColor:'rgba(63,107,102,0.08)'
       });
     }
+
     chartInstance = new Chart(canvas, {
       type:'line',
       data:{ datasets },
@@ -857,6 +1007,7 @@ function renderTrends(pet){
       }
     });
   }
+  
   draw(select.value);
   select.addEventListener('change', ()=> draw(select.value));
 }
@@ -904,7 +1055,7 @@ function openPetModal(pet){
   modal.querySelector('#mCancel').addEventListener('click', ()=> overlay.remove());
   if(pet){
     modal.querySelector('#mDeletePet').addEventListener('click', async ()=>{
-      if(confirm('確定要刪除這隻寵物與所有回診紀錄關聯嗎?(回診紀錄本身需另外清理)')){
+      if(confirm('確定要刪除這隻寵物與所有回診紀錄關聯嗎?')){
         await deletePet(pet.id); overlay.remove();
       }
     });
