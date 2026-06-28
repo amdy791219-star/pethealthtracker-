@@ -980,7 +980,7 @@ function renderTrends(pet){
   chartWrap.appendChild(canvas);
   main.appendChild(chartWrap);
 
-   function draw(itemName){
+  function draw(itemName){
     const points = [];
     let refLow=null, refHigh=null;
     
@@ -993,7 +993,6 @@ function renderTrends(pet){
       };
       const key = fieldMap[itemName];
       dSorted.forEach(log => {
-        // 🌟 確保數值存在、非空字串且轉換為數字後不是 NaN
         if(log[key] !== "" && log[key] != null && !isNaN(parseFloat(log[key]))) {
           points.push({x: log.date, y: parseFloat(log[key])});
         }
@@ -1018,7 +1017,6 @@ function renderTrends(pet){
       return;
     }
 
-    // 🌟 確保資料點依照時間先後順序排序，連線才不會錯亂
     points.sort((a, b) => new Date(a.x) - new Date(b.x));
 
     const pointColors = points.map(p=>{
@@ -1061,7 +1059,7 @@ function renderTrends(pet){
             type:'time', 
             time:{
               parser: 'yyyy-MM-dd',
-              unit:'day', // 🌟 改為以「天」為基本單位，看短期日常紀錄更清晰
+              unit:'day',
               displayFormats: { day: 'MM/dd' }
             }, 
             title:{display:false} 
@@ -1070,7 +1068,13 @@ function renderTrends(pet){
         }
       }
     });
-  }
+  } // 🌟 補上了這個原本遺失的 draw() 結尾大括號！
+
+  // 🌟 補上選擇選單切換時觸發重新繪圖的監聽器
+  select.addEventListener('change', (e) => draw(e.target.value));
+  // 預設進來繪製第一個項目
+  if(select.value) draw(select.value);
+}
   
 /* ============================================================
    LIGHTBOX
