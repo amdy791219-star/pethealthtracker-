@@ -964,10 +964,10 @@ function renderTrends(pet){
   const dSorted = (dailyLogsByPet[pet.id]||[]).slice().sort((a,b)=> new Date(a.date)-new Date(b.date));
 
   const itemNames = new Set();
-  itemNames.add("📦 日常: 每日飲水量 (ml)");
-  itemNames.add("📦 日常: 每日飼料量 (g)");
-  itemNames.add("📦 日常: 目前體重 (kg)");
-  itemNames.add("📦 日常: 每分鐘呼吸次數");
+  itemNames.add("💧 日常: 每日飲水量 (ml)");
+  itemNames.add("🍖 日常: 每日飼料量 (g)");
+  itemNames.add("⚖️ 日常: 目前體重 (kg)");
+  itemNames.add("🫁 日常: 每分鐘呼吸次數");
   
   vSorted.forEach(v=>(v.panels||[]).forEach(p=>(p.items||[]).forEach(it=>{ if(it.name) itemNames.add("🩸 臨床: "+it.name); })));
 
@@ -992,10 +992,10 @@ function renderTrends(pet){
     
     if(itemName.startsWith("📦 日常: ")) {
       const fieldMap = {
-        "📦 日常: 每日飲水量 (ml)": "water",
-        "📦 日常: 每日飼料量 (g)": "food",
-        "📦 日常: 目前體重 (kg)": "weight",
-        "📦 日常: 每分鐘呼吸次數": "breath"
+        "💧 日常: 每日飲水量 (ml)": "water",
+        "🍖 日常: 每日飼料量 (g)": "food",
+        "⚖️ 日常: 目前體重 (kg)": "weight",
+        "🫁 日常: 每分鐘呼吸次數": "breath"
       };
       const key = fieldMap[itemName];
       dSorted.forEach(log => {
