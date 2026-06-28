@@ -246,7 +246,7 @@
     <div id="authError" class="auth-error hidden"></div>
     <div class="field" id="nameField" style="display:none;">
       <label>你的稱呼(飼主/管理人)</label>
-      <input id="inputName" type="text" placeholder="例如:飼主">
+      <input id="inputName" type="text" placeholder="例如:欽源">
     </div>
     <div class="field">
       <label>Email</label>
@@ -515,13 +515,21 @@ async function deletePet(petId){
    FIRESTORE: 回診紀錄
    ============================================================ */
 function subscribeVisits(petId){
-  const q = query(collection(db,'visits'), where('petId','==',petId));
+  // 💡 已修正：在 query 內加上 ownerId 的過濾條件，與 Security Rules 保持同步
+  const q = query(
+    collection(db, 'visits'), 
+    where('petId', '==', petId),
+    where('ownerId', '==', currentUser.uid)
+  );
   onSnapshot(q, (snap)=>{
     const list = snap.docs.map(d=>({id:d.id, ...d.data()}));
     list.sort((a,b)=> new Date(b.date) - new Date(a.date));
     visitsByPet[petId] = list;
     renderMain();
-  }, (err)=> toast("讀取回診紀錄失敗:"+err.message));
+  }, (err)=> {
+    console.error(err);
+    toast("讀取回診紀錄失敗:" + err.message);
+  });
 }
 async function createVisit(petId, data){
   await addDoc(collection(db,'visits'), {
