@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 <style>
   :root{
     --paper:#FAF7F0;
@@ -1023,7 +1024,14 @@ function renderTrends(pet){
       return;
     }
 
+         // 確保點位由舊到新排序
     points.sort((a, b) => new Date(a.x) - new Date(b.x));
+
+    // 提取所有有紀錄的日期字串作為 X 軸標籤 (格式化為 MM/dd)
+    const labels = points.map(p => {
+      const d = new Date(p.x);
+      return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+    });
 
     const pointColors = points.map(p=>{
       if(refLow!=null && p.y<refLow) return '#3D6FC1';
@@ -1033,7 +1041,7 @@ function renderTrends(pet){
 
     const datasets = [{
       label: itemName,
-      data: points,
+      data: points.map(p => p.y), // 改為純數值陣列，對應 category 分類軸
       borderColor:'#3F6B66',
       backgroundColor:'#3F6B66',
       pointBackgroundColor: pointColors,
@@ -1044,11 +1052,11 @@ function renderTrends(pet){
 
     if(refLow!=null && refHigh!=null){
       datasets.push({
-        label:'正常範圍上限', data: points.map(p=>({x:p.x,y:refHigh})),
+        label:'正常範圍上限', data: points.map(()=>refHigh),
         borderColor:'rgba(63,107,102,0.25)', borderDash:[4,4], pointRadius:0, borderWidth:1, fill:'+1'
       });
       datasets.push({
-        label:'正常範圍下限', data: points.map(p=>({x:p.x,y:refLow})),
+        label:'正常範圍下限', data: points.map(()=>refLow),
         borderColor:'rgba(63,107,102,0.25)', borderDash:[4,4], pointRadius:0, borderWidth:1,
         backgroundColor:'rgba(63,107,102,0.08)'
       });
@@ -1056,32 +1064,63 @@ function renderTrends(pet){
 
     chartInstance = new Chart(canvas, {
       type:'line',
-      data:{ datasets },
+      data:{ 
+        labels: labels, // 使用有紀錄的日期標籤
+        datasets 
+      },
+      plugins: [ChartDataLabels], // 🌟 說明：啟用顯示數值外掛
       options:{
         responsive:true,
-        plugins:{ legend:{ labels:{ filter:(item)=> !item.text.includes('範圍') } } },
+        layout: {
+          padding: {
+            top: 24 // 留點頂部空間給上方數字，避免文字被切掉
+          }
+        },
+        plugins:{ 
+          legend:{ labels:{ filter:(item)=> !item.text.includes('範圍') } },
+          // 🌟 設定點位上方顯示數值
+          datalabels: {
+            align: 'top',
+            anchor: 'end',
+            offset: 4,
+            backgroundColor: 'rgba(255, 255, 255, 0.85)',
+            borderRadius: 4,
+            borderWidth: 1,
+            borderColor: 'var(--line)',
+            color: 'var(--ink)',
+            font: {
+              weight: '600',
+              family: 'IBM Plex Mono',
+              size: 11
+            },
+            formatter: (value, context) => {
+              // 只顯示主要數據點的數字，隱藏正常範圍線的數字
+              if (context.datasetIndex !== 0) return null;
+              return value;
+            }
+          }
+        },
         scales:{
           x:{ 
-            type:'time', 
-            time:{
-              parser: 'yyyy-MM-dd',
-              unit:'day',
-              displayFormats: { day: 'MM/dd' }
-            }, 
-            title:{display:false} 
+            type:'category', // 🌟 改為分類軸，這樣就只會顯示有紀錄點的日期
+            title:{display:false},
+            grid: { display: false } 
           },
-          y:{ title:{display:false} }
+          y:{ 
+            title:{display:false},
+            grace: '10%' // 讓 Y 軸頂部留一點空隙給數字
+          }
         }
       }
     });
-  } // 🌟 補上了這個原本遺失的 draw() 結尾大括號！
+  } // 這是 draw() 結尾大括號
 
-  // 🌟 補上選擇選單切換時觸發重新繪圖的監聽器
+  // 選擇選單切換時觸發重新繪圖的監聽器
   select.addEventListener('change', (e) => draw(e.target.value));
   // 預設進來繪製第一個項目
   if(select.value) draw(select.value);
 }
-  
+
 /* ============================================================
    LIGHTBOX
    ============================================================ */
