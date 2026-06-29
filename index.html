@@ -891,7 +891,7 @@ function renderOverview(pet){
         photoURLs: currentLogPhotoURLs
       };
 
-      try {
+          try {
         if (editingLogId) {
           await updateDailyLog(editingLogId, logData);
           editingLogId = null;
@@ -900,11 +900,17 @@ function renderOverview(pet){
         }
         currentLogPhotoURLs = [];
         updateDailySection();
+        
+        // --- 在這裡補上這兩行，鎖定下拉選單 ---
+        tabSelect.value = currentTab;
+        tabSelect.dispatchEvent(new Event('change'));
+        // ----------------------------------
+        
       } catch (err) {
         console.error("儲存失敗:", err);
         toast("儲存失敗，請檢查設定");
       }
-    });
+
 
     // 右側列表排版
     const listBox = el('div', 'daily-list-box');
