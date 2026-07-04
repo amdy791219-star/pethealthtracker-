@@ -337,7 +337,7 @@ import {
   signOut, onAuthStateChanged, updateProfile
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, getDoc,
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, getDoc, setDoc,
   query, where, orderBy, onSnapshot, serverTimestamp, arrayUnion, arrayRemove
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -417,6 +417,8 @@ let currentTab = 'water';
 let visitFilterText = '';
 let visitFilterFrom = '';
 let visitFilterTo = '';
+// 自訂 OCR 解析項目對照表(從 Firestore userSettings 載入)
+let customOcrMappings = [];
 
 /* ============================================================
    工具
@@ -553,6 +555,7 @@ function bootAuthListener(){
       document.getElementById('app').classList.remove('hidden');
       document.getElementById('userEmailLabel').textContent = user.displayName ? `${user.displayName} · ${user.email}` : user.email;
       subscribePets();
+      loadCustomMappings();
     }else{
       document.getElementById('authScreen').classList.remove('hidden');
       document.getElementById('app').classList.add('hidden');
@@ -671,6 +674,119 @@ async function updateDailyLog(logId, data) {
 async function deleteDailyLog(logId) {
   await deleteDoc(doc(db, 'dailyLogs', logId));
   toast("已刪除紀錄");
+}
+
+/* ============================================================
+   自訂 OCR 解析項目 — 儲存在 Firestore userSettings
+   ============================================================ */
+async function loadCustomMappings() {
+  if (!currentUser) return;
+  try {
+    const snap = await getDoc(doc(db, 'userSettings', currentUser.uid));
+    if (snap.exists() && snap.data().customOcrMappings) {
+      customOcrMappings = snap.data().customOcrMappings;
+    }
+  } catch(e) { console.error('載入自訂解析項目失敗', e); }
+}
+
+async function saveCustomMappings() {
+  try {
+    await setDoc(doc(db, 'userSettings', currentUser.uid),
+      { customOcrMappings }, { merge: true });
+    toast('自訂解析項目已儲存');
+  } catch(e) { toast('儲存失敗: ' + e.message); }
+}
+
+function openOcrMappingModal() {
+  const overlay = el('div','overlay');
+  const modal = el('div','modal');
+
+  function renderList(container) {
+    container.innerHTML = '';
+    if (!customOcrMappings.length) {
+      container.innerHTML = '<div style="color:var(--ink-soft);font-size:13px;padding:12px 0;">尚未新增自訂項目</div>';
+      return;
+    }
+    // 標題列
+    const header = document.createElement('div');
+    header.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr 28px;gap:8px;padding:4px 0 8px;border-bottom:1px solid var(--line);font-size:12px;color:var(--ink-soft);';
+    header.innerHTML = '<span>辨識關鍵字</span><span>顯示名稱</span><span>面板名稱</span><span></span>';
+    container.appendChild(header);
+    customOcrMappings.forEach((m, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr 28px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;';
+      row.innerHTML = `
+        <span>${escapeHtml(m.keyword)}</span>
+        <span style="color:var(--ink-soft);">${escapeHtml(m.displayName)}</span>
+        <span style="color:var(--teal-dark);font-size:12px;">${escapeHtml(m.panel)}</span>
+        <button type="button" class="icon-btn delMap" style="color:var(--coral);">✕</button>
+      `;
+      row.querySelector('.delMap').addEventListener('click', () => {
+        customOcrMappings.splice(idx, 1);
+        renderList(container);
+      });
+      container.appendChild(row);
+    });
+  }
+
+  modal.innerHTML = `
+    <h2>⚙️ 管理自訂解析項目</h2>
+    <p style="font-size:13px;color:var(--ink-soft);margin-top:-10px;margin-bottom:16px;">
+      新增你常用的檢驗項目，解析時會自動辨識並填入對應面板。<br>
+      支援文字值（例如「陰性」、「透明」）以及數值。
+    </p>
+    <div id="ocrMappingList" style="max-height:280px;overflow-y:auto;margin-bottom:16px;"></div>
+    <div style="background:var(--sage);border-radius:10px;padding:14px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;">新增項目</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">辨識關鍵字</div>
+          <input id="newKeyword" placeholder="例如: 比重" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:#fff;">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">顯示名稱(選填)</div>
+          <input id="newDisplayName" placeholder="例如: 比重" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:#fff;">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-bottom:4px;">面板名稱</div>
+          <input id="newPanel" placeholder="例如: 尿液檢查" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:#fff;">
+        </div>
+      </div>
+      <button type="button" class="btn btn-primary" id="addMappingBtn" style="width:auto;padding:8px 16px;">+ 新增</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-line" id="mCancel">關閉不儲存</button>
+      <button class="btn btn-primary" id="saveMappings" style="width:auto;">儲存並關閉</button>
+    </div>
+  `;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+  modal.querySelector('#mCancel').addEventListener('click', ()=> overlay.remove());
+
+  const listContainer = modal.querySelector('#ocrMappingList');
+  renderList(listContainer);
+
+  modal.querySelector('#addMappingBtn').addEventListener('click', () => {
+    const keyword = modal.querySelector('#newKeyword').value.trim();
+    const displayName = modal.querySelector('#newDisplayName').value.trim() || keyword;
+    const panel = modal.querySelector('#newPanel').value.trim();
+    if (!keyword) { toast('請填寫辨識關鍵字'); return; }
+    if (!panel) { toast('請填寫面板名稱'); return; }
+    // 避免重複
+    if (customOcrMappings.some(m => m.keyword.toUpperCase() === keyword.toUpperCase())) {
+      toast('這個關鍵字已存在'); return;
+    }
+    customOcrMappings.push({ keyword, displayName, panel });
+    renderList(listContainer);
+    modal.querySelector('#newKeyword').value = '';
+    modal.querySelector('#newDisplayName').value = '';
+  });
+
+  modal.querySelector('#saveMappings').addEventListener('click', async () => {
+    await saveCustomMappings();
+    overlay.remove();
+  });
 }
 
 /* ============================================================
@@ -1546,7 +1662,10 @@ function openVisitModal(pet, visit){
       <div class="field" style="margin-bottom:8px;">
         <textarea id="mOcrInput" placeholder="請將 Google 智慧鏡頭複製的文字直接貼在此處,例如:&#10;紅血球 7.25 M/μL&#10;血球容積比(HCT) 32.8%" style="min-height:80px; background:#fff; font-size:13px;"></textarea>
       </div>
-      <button type="button" class="btn btn-primary" id="btnParseOcr" style="width:auto; font-size:12px; padding:6px 12px; background:var(--teal);">立即解析並自動填入</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary" id="btnParseOcr" style="width:auto; font-size:12px; padding:6px 12px; background:var(--teal);">立即解析並自動填入</button>
+        <button type="button" class="btn btn-line" id="btnManageOcr" style="width:auto; font-size:12px; padding:6px 12px;">⚙️ 管理自訂解析項目</button>
+      </div>
     </div>
 
     <h3 style="font-size:15px;margin:18px 0 6px;">檢驗項目列表</h3>
@@ -1629,15 +1748,15 @@ function openVisitModal(pet, visit){
     visit.panels.forEach(p=> addPanel(p.name, p.items));
   }
 
+  // 管理自訂解析項目按鈕
+  modal.querySelector('#btnManageOcr').addEventListener('click', () => openOcrMappingModal());
+
   modal.querySelector('#btnParseOcr').addEventListener('click', () => {
     const rawText = modal.querySelector('#mOcrInput').value;
     if (!rawText.trim()) { toast("請先貼上文字內容"); return; }
 
-    let cleanedText = rawText
-      .replace(/\n\s*([0-9]+\.?[0-9]*\s*(%|[a-zA-Z\/μµL]*))/g, ' $1') 
-      .replace(/\s+/g, ' ');
-
-    const matchMap = {
+    // 內建對照表
+    const builtinMap = {
       "紅血球": { name: "紅血球 RBC", panel: "CBC 血液檢查" },
       "RBC": { name: "紅血球 RBC", panel: "CBC 血液檢查" },
       "血球容積": { name: "血球容積比 HCT", panel: "CBC 血液檢查" },
@@ -1671,7 +1790,6 @@ function openVisitModal(pet, visit){
       "MPV": { name: "平均血小板體積 MPV", panel: "CBC 血液檢查" },
       "PDW": { name: "血小板分布寬度 PDW", panel: "CBC 血液檢查" },
       "PCT": { name: "血小板容積比 PCT", panel: "CBC 血液檢查" },
-      
       "Na": { name: "鈉 Na", panel: "生化檢查" }, "鈉": { name: "鈉 Na", panel: "生化檢查" },
       "K": { name: "鉀 K", panel: "生化檢查" }, "鉀": { name: "鉀 K", panel: "生化檢查" },
       "Cl": { name: "氯 Cl", panel: "生化檢查" }, "氯": { name: "氯 Cl", panel: "生化檢查" },
@@ -1684,44 +1802,99 @@ function openVisitModal(pet, visit){
       "IP": { name: "磷離子 IP", panel: "生化檢查" }, "磷": { name: "磷離子 IP", panel: "生化檢查" }
     };
 
-    const regex = /([A-Za-z\u4e00-\u9fa5\(\)%]+)\s*([0-9]+\.?[0-9]*)/g;
-    let match;
-    let successCount = 0;
+    // 合併自訂對照表（自訂優先）
+    const matchMap = { ...builtinMap };
+    customOcrMappings.forEach(m => {
+      matchMap[m.keyword] = { name: m.displayName || m.keyword, panel: m.panel };
+    });
 
-    addPanel("CBC 血液檢查", PRESETS["CBC 血液檢查"]);
-
-    while ((match = regex.exec(cleanedText)) !== null) {
-      const rawName = match[1].trim();
-      const value = match[2].trim();
-
-      let matchedConfig = null;
+    // 找出某行文字是否符合任何關鍵字
+    function findMapping(text) {
+      const t = text.trim().toUpperCase();
       for (let key in matchMap) {
-        if (rawName.toUpperCase().includes(key.toUpperCase())) {
-          matchedConfig = matchMap[key];
-          break;
+        if (t === key.toUpperCase() || t.includes(key.toUpperCase())) {
+          return { key, config: matchMap[key] };
         }
       }
+      return null;
+    }
 
-      if (matchedConfig) {
-        const targetPanelBlock = addPanel(matchedConfig.panel);
-        const rows = targetPanelBlock.querySelectorAll('.item-edit-row');
-        
-        for (let row of rows) {
-          const nameInput = row.querySelector('.itName');
-          if (nameInput.value.toUpperCase().includes(rawName.toUpperCase()) || matchedConfig.name.includes(nameInput.value)) {
-            row.querySelector('.itValue').value = value;
-            successCount++;
-            break;
-          }
+    const results = []; // { name, panel, value }
+    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+    const usedLines = new Set();
+
+    // === 策略一：直排格式（Google 鏡頭: 項目名換行後跟數值或文字） ===
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (usedLines.has(i)) continue;
+      const m = findMapping(lines[i]);
+      if (m) {
+        const nextLine = lines[i + 1];
+        // 下一行不是另一個已知關鍵字，才視為數值
+        if (nextLine && !findMapping(nextLine) && !usedLines.has(i + 1)) {
+          results.push({ name: m.config.name, panel: m.config.panel, value: nextLine });
+          usedLines.add(i);
+          usedLines.add(i + 1);
         }
       }
     }
 
-    if(successCount > 0) {
-      toast(`✨ 成功自動解析並填入 ${successCount} 項數值!`);
+    // === 策略二：橫排格式（項目 數值 同一行，支援數字值） ===
+    const remainingText = lines.filter((_, i) => !usedLines.has(i)).join(' ');
+    if (remainingText.trim()) {
+      const regex = /([A-Za-z\u4e00-\u9fa5\(\)%]+)\s*([0-9]+\.?[0-9]*)/g;
+      let match;
+      while ((match = regex.exec(remainingText)) !== null) {
+        const rawName = match[1].trim();
+        const value = match[2].trim();
+        const m = findMapping(rawName);
+        if (m) results.push({ name: m.config.name, panel: m.config.panel, value });
+      }
+    }
+
+    if (!results.length) {
+      toast("無法辨識文字中的項目，請確認格式是否正確。");
+      return;
+    }
+
+    // 填入各面板
+    let successCount = 0;
+    // 先將有 PRESET 的面板預先建立
+    const panelsNeeded = new Set(results.map(r => r.panel));
+    panelsNeeded.forEach(panelName => {
+      if (PRESETS[panelName]) addPanel(panelName, PRESETS[panelName]);
+    });
+
+    results.forEach(r => {
+      // 取得或建立面板
+      let panelBlock = Array.from(panelsEditor.querySelectorAll('.panel-editor'))
+        .find(b => b.querySelector('.panelName').value.trim() === r.panel);
+      if (!panelBlock) panelBlock = addPanel(r.panel, [{ name: r.name, unit: '', refLow: '', refHigh: '' }]);
+
+      const rows = panelBlock.querySelectorAll('.item-edit-row');
+      let filled = false;
+      for (let row of rows) {
+        const nameInput = row.querySelector('.itName');
+        const nv = nameInput.value.trim().toUpperCase();
+        if (nv === r.name.toUpperCase() || nv.includes(r.name.split(' ')[0].toUpperCase()) || r.name.toUpperCase().includes(nv.split(' ')[0])) {
+          row.querySelector('.itValue').value = r.value;
+          successCount++;
+          filled = true;
+          break;
+        }
+      }
+      // 在面板裡找不到時，直接新增一列
+      if (!filled) {
+        const itemsList = panelBlock.querySelector('.itemsList');
+        addItemRow(itemsList, { name: r.name, value: r.value, unit: '', refLow: '', refHigh: '' });
+        successCount++;
+      }
+    });
+
+    if (successCount > 0) {
+      toast(`✨ 成功自動解析並填入 ${successCount} 項數值！`);
       modal.querySelector('#mOcrInput').value = "";
     } else {
-      toast("無法辨識文字中的項目,請確認格式是否正確。");
+      toast("無法辨識文字中的項目，請確認格式是否正確。");
     }
   });
 
