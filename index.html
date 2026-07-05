@@ -1816,7 +1816,21 @@ function openVisitModal(pet, visit){
       "ALP": { name: "鹼性磷酸酶 ALP", panel: "生化檢查" },
       "BUN": { name: "血尿素氮 BUN", panel: "生化檢查" },
       "CRE": { name: "肌酸酐 CRE", panel: "生化檢查" }, "CRSC": { name: "肌酸酐 CRE", panel: "生化檢查" },
-      "IP": { name: "磷離子 IP", panel: "生化檢查" }, "磷": { name: "磷離子 IP", panel: "生化檢查" }
+      "IP": { name: "磷離子 IP", panel: "生化檢查" }, "磷": { name: "磷離子 IP", panel: "生化檢查" },
+      // 尿液檢查（內建支援，不需手動加自訂解析項目）
+      "顏色": { name: "顏色", panel: "尿液檢查" },
+      "清晰度": { name: "清晰度", panel: "尿液檢查" },
+      "比重": { name: "比重", panel: "尿液檢查" },
+      "酸鹼值": { name: "酸鹼值 pH", panel: "尿液檢查" },
+      "尿白血球": { name: "尿白血球 LEU", panel: "尿液檢查" },
+      "尿蛋白質": { name: "尿蛋白質 PRO", panel: "尿液檢查" },
+      "尿糖": { name: "尿糖 GLU", panel: "尿液檢查" },
+      "酮體": { name: "酮體 KET", panel: "尿液檢查" },
+      "尿膽素原": { name: "尿膽素原 UBG", panel: "尿液檢查" },
+      "尿膽紅素": { name: "尿膽紅素 BIL", panel: "尿液檢查" },
+      "潛血": { name: "潛血 BLD", panel: "尿液檢查" },
+      "尿蛋白": { name: "尿蛋白 UPRO", panel: "尿液檢查" },
+      "尿肌酸酐": { name: "尿肌酸酐 UCRE", panel: "尿液檢查" }
     };
 
     // 合併自訂對照表（自訂優先）
@@ -1828,15 +1842,38 @@ function openVisitModal(pet, visit){
     // 找出某行文字是否符合任何關鍵字
     function findMapping(text) {
       const t = text.trim().toUpperCase();
-      // 先找完全相符（最優先）
-      for (let key in matchMap) {
-        if (t === key.toUpperCase()) return { key, config: matchMap[key] };
+      // 優先順序：自訂 > 內建；同層內：完全相符 > 開頭相符 > 包含相符
+      // 「開頭相符」是關鍵：「尿糖(GLU)」開頭是「尿糖」，GLU 只在括號裡
+      // 所以「尿糖」(開頭)贏過「GLU」(包含)，正確導入尿液檢查面板
+
+      // ── 自訂對照表 優先 ──
+      // 完全相符
+      for (const m of customOcrMappings) {
+        if (t === m.keyword.toUpperCase())
+          return { key: m.keyword, config: { name: m.displayName || m.keyword, panel: m.panel } };
       }
-      // 再找包含，按關鍵字長度由長到短
-      // 確保 "尿糖(GLU)" 先比對到 "尿糖" 而非 "GLU"
-      const sortedKeys = Object.keys(matchMap).sort((a, b) => b.length - a.length);
-      for (const key of sortedKeys) {
-        if (t.includes(key.toUpperCase())) return { key, config: matchMap[key] };
+      // 開頭相符（較長優先）
+      const sortedCustom = [...customOcrMappings].sort((a, b) => b.keyword.length - a.keyword.length);
+      for (const m of sortedCustom) {
+        if (t.startsWith(m.keyword.toUpperCase()))
+          return { key: m.keyword, config: { name: m.displayName || m.keyword, panel: m.panel } };
+      }
+
+      // ── 內建對照表 ──
+      const sortedBuiltin = Object.keys(builtinMap).sort((a, b) => b.length - a.length);
+      // 完全相符
+      for (const key of sortedBuiltin) {
+        if (t === key.toUpperCase()) return { key, config: builtinMap[key] };
+      }
+      // 開頭相符（較長優先）── 核心修正
+      // 「尿白血球(LEU)」開頭「尿白血球」(4字) 優先於「白血球」(3字)
+      // 「尿糖(GLU)」開頭「尿糖」(2字) 優先於括號內的「GLU」(3字母)
+      for (const key of sortedBuiltin) {
+        if (t.startsWith(key.toUpperCase())) return { key, config: builtinMap[key] };
+      }
+      // 包含相符（最後備用，處理 CBC/HCT 等縮寫在括號內的情形）
+      for (const key of sortedBuiltin) {
+        if (t.includes(key.toUpperCase())) return { key, config: builtinMap[key] };
       }
       return null;
     }
