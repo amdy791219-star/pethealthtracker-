@@ -1735,7 +1735,8 @@ function openVisitModal(pet, visit){
     
     block.querySelector('.addItemRow').addEventListener('click', ()=> addItemRow(itemsList));
     (items||[]).forEach(it=> addItemRow(itemsList, it));
-    if(!items || !items.length) addItemRow(itemsList);
+    // items==null/undefined 才補空列（讓使用者手動填）；傳 [] 表示不需要空列
+    if(items == null) addItemRow(itemsList);
     panelsEditor.appendChild(block);
     return block;
   }
@@ -1827,10 +1828,15 @@ function openVisitModal(pet, visit){
     // 找出某行文字是否符合任何關鍵字
     function findMapping(text) {
       const t = text.trim().toUpperCase();
+      // 先找完全相符（最優先）
       for (let key in matchMap) {
-        if (t === key.toUpperCase() || t.includes(key.toUpperCase())) {
-          return { key, config: matchMap[key] };
-        }
+        if (t === key.toUpperCase()) return { key, config: matchMap[key] };
+      }
+      // 再找包含，按關鍵字長度由長到短
+      // 確保 "尿糖(GLU)" 先比對到 "尿糖" 而非 "GLU"
+      const sortedKeys = Object.keys(matchMap).sort((a, b) => b.length - a.length);
+      for (const key of sortedKeys) {
+        if (t.includes(key.toUpperCase())) return { key, config: matchMap[key] };
       }
       return null;
     }
@@ -1873,32 +1879,30 @@ function openVisitModal(pet, visit){
     }
 
     // 填入各面板
+    // ⚠️ 不預先套用 PRESET 整個面板，只建立有資料的面板，逐一填入找到的項目
+    // 這樣可避免「尿糖 GLU」誤觸發後把整個 CBC/生化 PRESET 都建出來
     let successCount = 0;
-    // 先將有 PRESET 的面板預先建立
-    const panelsNeeded = new Set(results.map(r => r.panel));
-    panelsNeeded.forEach(panelName => {
-      if (PRESETS[panelName]) addPanel(panelName, PRESETS[panelName]);
-    });
-
     results.forEach(r => {
-      // 取得或建立面板
+      // 取得或建立面板（傳 [] 不加空列）
       let panelBlock = Array.from(panelsEditor.querySelectorAll('.panel-editor'))
         .find(b => b.querySelector('.panelName').value.trim() === r.panel);
-      if (!panelBlock) panelBlock = addPanel(r.panel, [{ name: r.name, unit: '', refLow: '', refHigh: '' }]);
+      if (!panelBlock) panelBlock = addPanel(r.panel, []);
 
       const rows = panelBlock.querySelectorAll('.item-edit-row');
       let filled = false;
       for (let row of rows) {
         const nameInput = row.querySelector('.itName');
         const nv = nameInput.value.trim().toUpperCase();
-        if (nv === r.name.toUpperCase() || nv.includes(r.name.split(' ')[0].toUpperCase()) || r.name.toUpperCase().includes(nv.split(' ')[0])) {
+        const rv = r.name.toUpperCase();
+        // 完全相符 or 名稱包含對方第一段
+        if (nv === rv || nv.includes(rv.split(' ')[0]) || rv.includes(nv.split(' ')[0])) {
           row.querySelector('.itValue').value = r.value;
           successCount++;
           filled = true;
           break;
         }
       }
-      // 在面板裡找不到時，直接新增一列
+      // 面板裡找不到對應列，直接新增
       if (!filled) {
         const itemsList = panelBlock.querySelector('.itemsList');
         addItemRow(itemsList, { name: r.name, value: r.value, unit: '', refLow: '', refHigh: '' });
