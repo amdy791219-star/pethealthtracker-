@@ -990,6 +990,11 @@ function renderOverview(pet){
   const dailyGrid = el('div', 'daily-log-grid');
   main.appendChild(dailyGrid);
 
+  // 統計欄：放在清單下方、臨床紀錄上方
+  const statsHost = el('div', '');
+  statsHost.style.cssText = 'margin-bottom:8px;';
+  main.appendChild(statsHost);
+
   function updateDailySection() {
     dailyGrid.innerHTML = '';
     const activeTabObj = tabs.find(t => t.id === currentTab);
@@ -1114,10 +1119,19 @@ function renderOverview(pet){
     const listBox = el('div', 'daily-list-box');
     const filteredLogs = dLogs.filter(log => log[currentTab] !== undefined && log[currentTab] !== null && log[currentTab] !== "");
 
+    // 僅顯示最近 7 筆，完整清單用於計算平均
+    const displayLogs = filteredLogs.slice(0, 7);
+
     if (!filteredLogs.length) {
       listBox.innerHTML = `<div style="color:var(--ink-soft); text-align:center; padding:40px 10px; font-size:13px;">尚未建立任何 ${activeTabObj.label} 紀錄</div>`;
     } else {
-      filteredLogs.forEach(log => {
+      if (filteredLogs.length > 7) {
+        const hint = el('div', '');
+        hint.style.cssText = 'font-size:11px;color:var(--ink-soft);text-align:right;padding:4px 2px 6px;';
+        hint.textContent = `僅顯示最近 7 筆（共 ${filteredLogs.length} 筆）`;
+        listBox.appendChild(hint);
+      }
+      displayLogs.forEach(log => {
         const row = el('div', 'daily-log-item');
         row.style.flexDirection = 'column';
         let displayVal = '';
@@ -1193,6 +1207,32 @@ function renderOverview(pet){
     dailyGrid.appendChild(formCard);
     dailyGrid.appendChild(listBox);
     renderFormPhotos();
+
+    // 更新統計欄（只對數值型項目顯示，特殊狀況不顯示）
+    statsHost.innerHTML = '';
+    if (currentTab !== 'notes' && filteredLogs.length > 0) {
+      const unit = activeTabObj.unit || '';
+      const toNum = v => parseFloat(v[currentTab]);
+      
+      const vals7  = filteredLogs.slice(0, 7).map(toNum).filter(v => !isNaN(v));
+      const vals30 = filteredLogs.slice(0, 30).map(toNum).filter(v => !isNaN(v));
+      const avg = arr => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1) : '—';
+
+      const statsEl = el('div', '');
+      statsEl.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;padding:10px 14px;background:var(--sage);border-radius:10px;margin-bottom:4px;';
+      
+      const s7 = el('div', '');
+      s7.style.cssText = 'font-size:13px;color:var(--ink);';
+      s7.innerHTML = `<span style="color:var(--ink-soft);font-size:11px;">最近 ${vals7.length} 次平均</span><br><strong style="font-size:16px;">${avg(vals7)}</strong> <span style="font-size:12px;color:var(--ink-soft);">${unit}</span>`;
+      
+      const s30 = el('div', '');
+      s30.style.cssText = 'font-size:13px;color:var(--ink);border-left:1px solid var(--line);padding-left:12px;';
+      s30.innerHTML = `<span style="color:var(--ink-soft);font-size:11px;">最近 ${Math.min(vals30.length, 30)} 次平均</span><br><strong style="font-size:16px;">${avg(vals30)}</strong> <span style="font-size:12px;color:var(--ink-soft);">${unit}</span>`;
+      
+      statsEl.appendChild(s7);
+      if (vals30.length > 7) statsEl.appendChild(s30);  // 30次平均只在資料夠多時才顯示
+      statsHost.appendChild(statsEl);
+    }
 
     // 強制將最上方的下拉選單同步為目前的項目
     tabSelect.value = currentTab;
