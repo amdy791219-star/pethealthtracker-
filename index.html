@@ -457,6 +457,12 @@ function fmtDate(d){
   const dd = String(dt.getDate()).padStart(2,'0');
   return `${yy}/${mm}/${dd}`;
 }
+// 取得台灣今天日期（UTC+8），避免 toISOString() 用 UTC 造成跨午夜時日期偏差
+function getTodayTW() {
+  // sv-SE locale 輸出 YYYY-MM-DD 格式，搭配 Asia/Taipei 時區
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei' }).format(new Date());
+}
+
 function flagFor(value, low, high){
   if(low==null||high==null||value===""||value==null||isNaN(value)) return null;
   const v = parseFloat(value);
@@ -951,7 +957,7 @@ function renderOverview(pet){
     .map(v => v.nextVisitDate)
     .sort()[0];
   if(upcoming){
-    const today = new Date().toISOString().slice(0,10);
+    const today = getTodayTW();
     const isOverdue = upcoming < today;
     const banner = el('div', 'reminder-banner' + (isOverdue ? '' : ' upcoming'),
       `${isOverdue ? '⚠️ 已超過建議回診日期:' : '📅 下次回診提醒:'} ${fmtDate(upcoming)}`);
@@ -1019,7 +1025,7 @@ function renderOverview(pet){
 
     formCard.innerHTML = `
       <h3 class="form-title">新增 ${activeTabObj.label}</h3>
-      <div class="field"><label>日期</label><input type="date" class="d-date-input" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>日期</label><input type="date" class="d-date-input" value="${getTodayTW()}"></div>
       ${inputFieldHtml}
       ${photoFieldHtml}
       <div style="display:flex; gap:8px; margin-top:10px;">
@@ -1704,7 +1710,7 @@ function openVisitModal(pet, visit){
   modal.innerHTML = `
     <h2>${visit? '編輯回診紀錄':'新增回診紀錄'}</h2>
     <div class="row3">
-      <div class="field"><label>回診日期</label><input id="mDate" type="date" value="${visit?.date||new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>回診日期</label><input id="mDate" type="date" value="${visit?.date||getTodayTW()}"></div>
       <div class="field"><label>診所</label><input id="mClinic" value="${visit?.clinicName||''}"></div>
       <div class="field"><label>醫師</label><input id="mVet" value="${visit?.vetName||''}"></div>
     </div>
@@ -2104,7 +2110,7 @@ function generateExportPage(pet, chosenVisits, selectedExportItems, vSorted, dSo
     <h1 style="font-family:Georgia,serif;margin-bottom:4px;">${escapeHtml(pet.name||'')} 健康紀錄比較</h1>
     <div style="color:#666;font-size:13px;margin-bottom:24px;">
       ${[pet.species, pet.breed, pet.sex, pet.birthdate?('生日 '+fmtDate(pet.birthdate)+getDetailedAge(pet.birthdate)):null].filter(Boolean).join(' · ')}
-      <br>產生時間:${fmtDate(new Date().toISOString().slice(0,10))}
+      <br>產生時間:${fmtDate(getTodayTW())}
     </div>
   `;
 
